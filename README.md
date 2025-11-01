@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # RISC Simulator - Visual Edition
 
 A visual RISC (Reduced Instruction Set Computing) simulator with a graphical user interface built using Python and Tkinter. This simulator allows you to write, assemble, and execute RISC assembly code while visualizing the state of registers and memory.
@@ -29,3 +30,7 @@ A visual RISC (Reduced Instruction Set Computing) simulator with a graphical use
 - `ADD Rd, Rs1, Rs2` - Add registers
 - `SUB Rd, Rs1, Rs2` - Subtract registers
 - `HLT` - Halt program execution
+=======
+# riscsimulator
+this is project of computer architecture
+>>>>>>> 147bba2e6d0c4dbb0494861eddf2630ff9c7e353

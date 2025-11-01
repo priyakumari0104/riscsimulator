@@ -44,6 +44,20 @@ for i, r in enumerate(registers):
     reg_labels[r] = tk.Label(reg_frame, text=str(registers[r]), font=("Consolas", 12), width=20, bg="white", relief="solid")
     reg_labels[r].grid(row=i, column=1, padx=5, pady=2)
 
+# ---------------- HIGHLIGHT HELPERS ---------------- #
+def highlight_instruction(line_no):
+    asm_text.tag_remove("highlight", "1.0", "end")
+    asm_text.tag_configure("highlight", background="#fff176")  # light yellow
+    asm_text.tag_add("highlight", f"{line_no}.0", f"{line_no}.end")
+    asm_text.see(f"{line_no}.0")
+
+def highlight_memory(index):
+    if 0 <= index < len(mem_labels):
+        lbl = mem_labels[index]
+        original = lbl.cget("bg")
+        lbl.config(bg="#aeeeee")  # light cyan
+        lbl.after(300, lambda: lbl.config(bg=original))
+
 # --- Memory Display --- #
 tk.Label(left_frame, text="Memory", font=("Arial", 14, "bold"), bg="#f0f4f7").pack(pady=5)
 mem_frame = tk.Frame(left_frame, bg="#f0f4f7")
@@ -146,6 +160,7 @@ def execute(op, args):
         reg = args[0]
         val = simple_input_popup(f"Enter value for {reg}:")
         registers[reg] = val
+        highlight_memory(registers["PC"])
         memory[registers["PC"]] = val
 
     elif op == "ADD":
@@ -176,16 +191,29 @@ def run_program():
     global halted
     halted = False
     while not halted:
+        if registers["PC"] >= len(program):
+            break
+        highlight_instruction(registers["PC"] + 1)
         instr = fetch()
         op, args = decode(instr)
         execute(op, args)
 
 def step_program():
     global halted
-    if not halted:
-        instr = fetch()
-        op, args = decode(instr)
-        execute(op, args)
+    if halted:
+        output_box.insert("end", "Program halted.\n")
+        output_box.see("end")
+        return
+
+    if registers["PC"] >= len(program):
+        output_box.insert("end", "End of program.\n")
+        output_box.see("end")
+        return
+
+    highlight_instruction(registers["PC"] + 1)
+    instr = fetch()
+    op, args = decode(instr)
+    execute(op, args)
 
 # --- Buttons --- #
 btn_frame = tk.Frame(right_frame, bg="#f0f4f7")
