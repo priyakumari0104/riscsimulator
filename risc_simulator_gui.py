@@ -309,9 +309,12 @@ def fetch():
 def decode(instr):
     stage_label.config(text="Stage: DECODE")
     update_gui()
-    parts = instr.split()
+    # Split instruction into tokens separated by commas or whitespace so that
+    # formats like "MVI A,10" and "MVI A, 10" are handled uniformly.
+    import re
+    parts = [t for t in re.split(r"[\s,]+", instr.strip()) if t]
     op = parts[0]
-    args = [x.replace(",", "") for x in parts[1:]]
+    args = parts[1:]
     return op, args
 
 def execute(op, args):
@@ -320,12 +323,16 @@ def execute(op, args):
     update_gui()
 
     if op == "MVI":
-        reg, val_str = args
-        try:
-            val = int(val_str)
-            registers[reg] = val & 0xFF 
-        except Exception as e:
-            output_box.insert(tk.END, f"Error: {e}\n")
+        # MVI expects two arguments: register and immediate value
+        if len(args) < 2:
+            output_box.insert(tk.END, f"Error: MVI requires 2 arguments, got {len(args)}\n")
+        else:
+            reg, val_str = args[0], args[1]
+            try:
+                val = int(val_str)
+                registers[reg] = val & 0xFF 
+            except Exception as e:
+                output_box.insert(tk.END, f"Error: {e}\n")
         clock_cycle += 7
 
     elif op == "STA":  # Store Accumulator (Data Constraint)
@@ -381,7 +388,53 @@ def execute(op, args):
         set_flags(result)
         registers["A"] = result & 0xFF
         clock_cycle += 4
-
+    elif op == "AND":  # (Logical AND Operation)
+        # Usage: AND B   → A = A & B
+        reg = args[0]
+        if reg in registers:
+            result = registers["A"] & registers[reg]
+            registers["A"] = result & 0xFF  # keep 8-bit result
+            set_flags(result)
+            output_box.insert(tk.END, f"A = {registers['A']} (A AND {reg})\n")
+        else:
+            output_box.insert(tk.END, f"Error: Invalid register {reg}\n")
+        clock_cycle += 4
+    elif op == "OR":  # (Logical OR Operation)
+        # Usage: OR B   → A = A | B
+        reg = args[0]
+        if reg in registers:
+            result = registers["A"] | registers[reg]
+            registers["A"] = result & 0xFF  # keep 8-bit result
+            set_flags(result)
+            output_box.insert(tk.END, f"A = {registers['A']} (A OR {reg})\n")
+        else:
+            output_box.insert(tk.END, f"Error: Invalid register {reg}\n")
+        clock_cycle += 4
+    elif op == "XOR":  # (Logical XOR Operation)
+        # Usage: XOR B   → A = A ^ B
+        reg = args[0]
+        if reg in registers:
+            result = registers["A"] ^ registers[reg]
+            registers["A"] = result & 0xFF  # keep 8-bit result
+            set_flags(result)
+            output_box.insert(tk.END, f"A = {registers['A']} (A XOR {reg})\n")
+        else:
+            output_box.insert(tk.END, f"Error: Invalid register {reg}\n")
+        clock_cycle += 4
+    elif op == "JZ":  # Jump if Zero flag is set
+       addr = int(args[0])
+    # Extract the Zero flag from FLAGS string (e.g. "Z=1 C=0 N=0 V=0")
+    Z_flag = int(registers["FLAGS"].split()[0].split('=')[1])
+    
+    if Z_flag == 1:
+        registers["PC"] = addr  # Jump to address
+        output_box.insert(tk.END, f"Jumped to address {addr} (Z=1)\n")
+    else:
+        registers["PC"] += 1  # Continue normally
+        output_box.insert(tk.END, f"No jump (Z=0)\n")
+    
+    clock_cycle += 10
+   
     elif op == "SUB":
         # SUB B (means A = A - B)
         reg = args[0]
@@ -401,7 +454,7 @@ def execute(op, args):
         output_box.insert(tk.END, f"{registers[reg]}\n")
         output_box.see(tk.END)
         clock_cycle += 10
-
+    
     elif op == "HLT":
         halted = True
         stage_label.config(text="Stage: HALTED")
