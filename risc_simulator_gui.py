@@ -1,14 +1,15 @@
 import tkinter as tk
 import time
 import threading
+import re
 
 # ---------------- CPU COMPONENTS ---------------- #
 registers = {
     "A": 0, "B": 0, "C": 0, "D": 0, "E": 0, "H": 0, "L": 0,
-    "FLAGS": "Z=0 S=0 P=0 C=0 AC=0",
-    "PC": 0,       # 16-bit Program Counter
-    "SP": 1024,    # 16-bit Stack Pointer, set to the end of our 1KB RAM
-    "IR": ""       # Instruction Register
+    "FLAGS": "Z=0 CY=0",
+    "PC": 0,        
+    "SP": 1024,     # set to the end of our 1KB RAM
+    "IR": ""        # Instruction Register
 }
 # 1KB (1024 bytes) of memory
 memory = [0] * 1024
@@ -18,7 +19,7 @@ halted = False
 
 # ---------------- SCROLLABLE ROOT WINDOW ---------------- #
 root = tk.Tk()
-root.title("RISC Simulator - Visual Edition")
+root.title("Simple 8085 Instruction Simulator") # Title updated
 root.geometry("1000x600")
 
 main_canvas = tk.Canvas(root, bg="#f0f4f7")
@@ -35,18 +36,12 @@ main_scroll.pack(side="right", fill="y")
 # ---------------- MOUSEWHEEL SCROLLING ---------------- #
 def _on_mousewheel(event):
     """Handles cross-platform mousewheel/touchpad scrolling."""
-    # event.delta is for Windows/macOS (value is 120 or -120)
-    # event.num is for Linux (value is 4 for up, 5 for down)
-    
     delta = 0
     if hasattr(event, 'delta') and event.delta != 0:
-        # Windows/macOS
         delta = int(-1 * (event.delta / 120))
     elif event.num == 4:
-        # Linux scroll up
         delta = -1
     elif event.num == 5:
-        # Linux scroll down
         delta = 1
     
     if delta != 0:
@@ -56,47 +51,37 @@ def _on_mem_scroll(event):
     """Handles scrolling for the memory canvas."""
     delta = 0
     if hasattr(event, 'delta') and event.delta != 0:
-        # Windows/macOS
         delta = int(-1 * (event.delta / 120))
     elif event.num == 4:
-        # Linux scroll up
         delta = -1
     elif event.num == 5:
-        # Linux scroll down
         delta = 1
     
     if delta != 0:
         mem_canvas.yview_scroll(delta, "units")
     
-    return "break" # Stops the event from scrolling the main window
+    return "break" 
 
-# Bind mousewheel events to the whole application
-# This ensures scrolling works even if the mouse is over a child widget
-root.bind_all("<MouseWheel>", _on_mousewheel) # For Windows/macOS
-root.bind_all("<Button-4>", _on_mousewheel)   # For Linux (scroll up)
-root.bind_all("<Button-5>", _on_mousewheel)   # For Linux (scroll down)
+root.bind_all("<MouseWheel>", _on_mousewheel) 
+root.bind_all("<Button-4>", _on_mousewheel)   
+root.bind_all("<Button-5>", _on_mousewheel)   
 
 # ---------------- GUI LAYOUT (3-Column) ---------------- #
 content_frame = tk.Frame(scrollable_frame, bg="#f0f4f7")
 content_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
-# --- Column 1: Registers ---
 col1_frame = tk.Frame(content_frame, bg="#f0f4f7")
 col1_frame.pack(side="left", fill="y")
 
-# --- Spacer 1 ---
 spacer1 = tk.Frame(content_frame, width=20, bg="#f0f4f7")
 spacer1.pack(side="left", fill="y")
 
-# --- Column 2: Input/Output ---
 col2_frame = tk.Frame(content_frame, bg="#f0f4f7")
 col2_frame.pack(side="left", fill="y")
 
-# --- Spacer 2 ---
 spacer2 = tk.Frame(content_frame, width=20, bg="#f0f4f7")
 spacer2.pack(side="left", fill="y")
 
-# --- Column 3: Memory ---
 col3_frame = tk.Frame(content_frame, bg="#f0f4f7")
 col3_frame.pack(side="left", fill="y")
 
@@ -110,16 +95,15 @@ for i, r in enumerate(registers):
     reg_labels[r] = tk.Label(reg_frame, text=str(registers[r]), font=("Consolas", 12), width=20, bg="white", relief="solid")
     reg_labels[r].grid(row=i, column=1, padx=5, pady=2)
 
-# -----------------------------Clock--------------------------------------
+# --- Clock ---
 tk.Label(col1_frame, text="Clock Cycles:", font=("Arial", 13, "bold"), bg="#f0f4f7").pack(pady=(15, 0))
 clock_label = tk.Label(col1_frame, text="0", font=("Consolas", 14, "bold"), bg="#e8f8ff", relief="solid", width=20)
 clock_label.pack(pady=5)
-# ---------------------------------------------------------------------------
 
 # ---------------- HIGHLIGHT HELPERS ---------------- #
 def highlight_instruction(line_no):
     asm_text.tag_remove("highlight", "1.0", "end")
-    asm_text.tag_configure("highlight", background="#ff76e1")  # light yellow
+    asm_text.tag_configure("highlight", background="#ff76e1")   
     asm_text.tag_add("highlight", f"{line_no}.0", f"{line_no}.end")
     asm_text.see(f"{line_no}.0")
 
@@ -127,7 +111,7 @@ def highlight_memory(index):
     if 0 <= index < len(mem_labels):
         lbl = mem_labels[index]
         original = lbl.cget("bg")
-        lbl.config(bg="#aeeeee")  # light cyan
+        lbl.config(bg="#aeeeee")   
         lbl.after(300, lambda: lbl.config(bg=original))
 
 def goto_memory():
@@ -135,7 +119,6 @@ def goto_memory():
     try:
         addr = int(mem_nav_entry.get())
         if 0 <= addr < len(memory):
-            # Calculate the fractional position (0.0 to 1.0)
             position = addr / len(memory)
             mem_canvas.yview_moveto(position)
             highlight_memory(addr)
@@ -160,34 +143,22 @@ mem_scroll.pack(side="right", fill="y")
 # --- Memory Navigation Bar ---
 nav_frame = tk.Frame(col3_frame, bg="#f0f4f7")
 nav_frame.pack(pady=2)
-
-# --- PREVIOUS BUTTON ---
 tk.Button(nav_frame, text="Prev", font=("Arial", 9, "bold"), bg="#fef5d4", 
           command=lambda: mem_canvas.yview_scroll(-11, "units")).pack(side="left", padx=(0, 5))
-
-# --- GOTO BOX ---
 tk.Label(nav_frame, text="Go to:", font=("Arial", 10), bg="#f0f4f7").pack(side="left")
 mem_nav_entry = tk.Entry(nav_frame, width=6, font=("Consolas", 11))
 mem_nav_entry.pack(side="left", padx=(5, 5))
 tk.Button(nav_frame, text="Go", font=("Arial", 9, "bold"), bg="#cbe1ff", command=goto_memory).pack(side="left")
-
-# --- NEXT BUTTON ---
 tk.Button(nav_frame, text="Next", font=("Arial", 9, "bold"), bg="#fef5d4", 
           command=lambda: mem_canvas.yview_scroll(11, "units")).pack(side="left", padx=(5, 0))
 
 # --- Memory Key/Legend ---
 key_frame = tk.Frame(col3_frame, bg="#f0f4f7")
 key_frame.pack(pady=2)
-
-# Key for Code
 tk.Label(key_frame, text=" ", bg="#fff8e8", relief="solid", bd=1, width=2).pack(side="left", padx=(0, 2))
 tk.Label(key_frame, text="Code (0-255)", font=("Arial", 9), bg="#f0f4f7").pack(side="left", padx=(0, 10))
-
-# Key for Data
 tk.Label(key_frame, text=" ", bg="#e8ffe8", relief="solid", bd=1, width=2).pack(side="left", padx=(0, 2))
 tk.Label(key_frame, text="Data (256-767)", font=("Arial", 9), bg="#f0f4f7").pack(side="left", padx=(0, 10))
-
-# Key for Stack
 tk.Label(key_frame, text=" ", bg="#e8f8ff", relief="solid", bd=1, width=2).pack(side="left", padx=(0, 2))
 tk.Label(key_frame, text="Stack (768-1023)", font=("Arial", 9), bg="#f0f4f7").pack(side="left")
 
@@ -203,16 +174,15 @@ mem_labels = []
 for i in range(len(memory)):
     color = "white" # Default
     if 0 <= i <= 255:
-        color = "#fff8e8"  # Code section (light yellow)
+        color = "#fff8e8"   
     elif 256 <= i <= 767:
-        color = "#e8ffe8"  # Data section (light green)
+        color = "#e8ffe8"   
     elif 768 <= i <= 1023:
-        color = "#e8f8ff"  # Stack section (light blue)
+        color = "#e8f8ff"   
         
     lbl = tk.Label(mem_inner, text=f"[{i:02}] = {memory[i]}", font=("Consolas", 11), width=25, bg=color, relief="solid")
     lbl.grid(row=i, column=0, padx=4, pady=2)
     
-    # Bind mousewheel events to the label
     lbl.bind("<MouseWheel>", _on_mem_scroll)
     lbl.bind("<Button-4>", _on_mem_scroll)
     lbl.bind("<Button-5>", _on_mem_scroll)
@@ -249,10 +219,9 @@ def update_gui():
 
 def set_flags(result):
     Z = 1 if result == 0 else 0
-    N = 1 if result < 0 else 0
     C = 1 if result > 255 else 0
-    V = 0
-    registers["FLAGS"] = f"Z={Z} C={C} N={N} V={V}"
+    # S85 only uses Z and CY
+    registers["FLAGS"] = f"Z={Z} CY={C}"
 
 def simple_input_popup(prompt):
     popup = tk.Toplevel(root)
@@ -271,34 +240,21 @@ def simple_input_popup(prompt):
         return 0
     
 def assemble_program():
-    global halted, memory
-    halted = False
-    clock_cycle = 0
-    registers["PC"] = 0
-    output_box.delete("1.0", tk.END)
-    
-    # Reset memory
-    memory = [0] * 1024 
-    
-    lines = asm_text.get("1.0", tk.END).strip().splitlines()
-    addr = 0
-    for line in lines:
-        if line.strip():
-            # Store the INSTRUCTION STRING directly into memory
-            memory[addr] = line.strip().upper()
-            addr += 1
-            
+    # Reset now handles loading the program from the text box
+    reset() 
     stage_label.config(text="Program Assembled")
-    update_gui()
+
 
 def fetch():
     if registers["PC"] < 1024:
         instr = memory[registers["PC"]]
+        if not instr: # Stop if memory is empty
+            return "HLT"
         
-        # Check for HLT or end of program
-        if not instr or instr == "HLT":
-             return "HLT"
-             
+        # Check for HLT
+        if instr == "HLT":
+            return "HLT"
+            
         registers["IR"] = instr
         stage_label.config(text=f"Stage: FETCH ({instr})")
         update_gui()
@@ -309,9 +265,6 @@ def fetch():
 def decode(instr):
     stage_label.config(text="Stage: DECODE")
     update_gui()
-    # Split instruction into tokens separated by commas or whitespace so that
-    # formats like "MVI A,10" and "MVI A, 10" are handled uniformly.
-    import re
     parts = [t for t in re.split(r"[\s,]+", instr.strip()) if t]
     op = parts[0]
     args = parts[1:]
@@ -322,8 +275,9 @@ def execute(op, args):
     stage_label.config(text="Stage: EXECUTE")
     update_gui()
 
+    
+
     if op == "MVI":
-        # MVI expects two arguments: register and immediate value
         if len(args) < 2:
             output_box.insert(tk.END, f"Error: MVI requires 2 arguments, got {len(args)}\n")
         else:
@@ -334,27 +288,26 @@ def execute(op, args):
             except Exception as e:
                 output_box.insert(tk.END, f"Error: {e}\n")
         clock_cycle += 7
+        registers["PC"] += 1
 
-    elif op == "STA":  # Store Accumulator (Data Constraint)
-        # Usage: STA 500
+    elif op == "STA": 
         addr = int(args[0])
-        # Optional: Add check for data area
         if 256 <= addr <= 767:
-          memory[addr] = registers["A"]
-          highlight_memory(addr)
+            memory[addr] = registers["A"]
+            highlight_memory(addr)
         else:
             output_box.insert(tk.END, f"Error: STA accessing invalid memory {addr}\n")
         clock_cycle += 13
+        registers["PC"] += 1
 
-    elif op == "LDA":  # Load Accumulator (Data Constraint)
-        # Usage: LDA 500
+    elif op == "LDA": 
         addr = int(args[0])
         registers["A"] = memory[addr] & 0xFF
         highlight_memory(addr)
         clock_cycle += 13
+        registers["PC"] += 1
 
-    elif op == "PUSH":  # (Stack Constraint)
-        # Usage: PUSH B
+    elif op == "PUSH": 
         reg = args[0]
         if reg in registers:
             registers["SP"] -= 1
@@ -363,13 +316,11 @@ def execute(op, args):
         else:
             output_box.insert(tk.END, f"Error: Invalid register {reg}\n")
         clock_cycle += 11
+        registers["PC"] += 1
 
     elif op == "POP":  
         reg = args[0]
-
         if reg in registers:
-
-            # Stack Underflow (stack empty)
             if registers["SP"] >= 1024:
                 output_box.insert(tk.END, "Error: Stack Underflow!\n")
                 halted = True
@@ -380,98 +331,114 @@ def execute(op, args):
         else:
             output_box.insert(tk.END, f"Error: Invalid register {reg}\n")
         clock_cycle += 10
+        registers["PC"] += 1
 
-    elif op == "ADD":
-        # ADD B (means A = A + B)
+    elif op in ["ADD", "SUB", "AND", "OR", "XOR"]:
         reg = args[0]
-        result = registers["A"] + registers[reg]
-        set_flags(result)
-        registers["A"] = result & 0xFF
-        clock_cycle += 4
-    elif op == "AND":  # (Logical AND Operation)
-        # Usage: AND B   → A = A & B
-        reg = args[0]
-        if reg in registers:
+        
+        if op == "ADD":
+            result = registers["A"] + registers[reg]
+        elif op == "SUB":
+            result = registers["A"] - registers[reg]
+        elif op == "AND":
             result = registers["A"] & registers[reg]
-            registers["A"] = result & 0xFF  # keep 8-bit result
-            set_flags(result)
-            output_box.insert(tk.END, f"A = {registers['A']} (A AND {reg})\n")
-        else:
-            output_box.insert(tk.END, f"Error: Invalid register {reg}\n")
-        clock_cycle += 4
-    elif op == "OR":  # (Logical OR Operation)
-        # Usage: OR B   → A = A | B
-        reg = args[0]
-        if reg in registers:
+        elif op == "OR":
             result = registers["A"] | registers[reg]
-            registers["A"] = result & 0xFF  # keep 8-bit result
-            set_flags(result)
-            output_box.insert(tk.END, f"A = {registers['A']} (A OR {reg})\n")
-        else:
-            output_box.insert(tk.END, f"Error: Invalid register {reg}\n")
-        clock_cycle += 4
-    elif op == "XOR":  # (Logical XOR Operation)
-        # Usage: XOR B   → A = A ^ B
-        reg = args[0]
-        if reg in registers:
+        elif op == "XOR":
             result = registers["A"] ^ registers[reg]
-            registers["A"] = result & 0xFF  # keep 8-bit result
-            set_flags(result)
-            output_box.insert(tk.END, f"A = {registers['A']} (A XOR {reg})\n")
-        else:
-            output_box.insert(tk.END, f"Error: Invalid register {reg}\n")
-        clock_cycle += 4
-    elif op == "JZ":  # Jump if Zero flag is set
-       addr = int(args[0])
-    # Extract the Zero flag from FLAGS string (e.g. "Z=1 C=0 N=0 V=0")
-    Z_flag = int(registers["FLAGS"].split()[0].split('=')[1])
-    
-    if Z_flag == 1:
-        registers["PC"] = addr  # Jump to address
-        output_box.insert(tk.END, f"Jumped to address {addr} (Z=1)\n")
-    else:
-        registers["PC"] += 1  # Continue normally
-        output_box.insert(tk.END, f"No jump (Z=0)\n")
-    
-    clock_cycle += 10
-   
-    elif op == "SUB":
-        # SUB B (means A = A - B)
-        reg = args[0]
-        result = registers["A"] - registers[reg]
+
         set_flags(result)
         registers["A"] = result & 0xFF
+        
         clock_cycle += 4
+        registers["PC"] += 1 
 
-    elif op == "INP":
-        reg = args[0]
-        val = simple_input_popup(f"Enter value for {reg}:")
-        registers[reg] = val & 0xFF
-        clock_cycle += 10
+    
+    
+    elif op == "JZ": 
+        addr = int(args[0]) # Arg is absolute line number
+        Z_flag = int(registers["FLAGS"].split()[0].split('=')[1])
+        
+        if Z_flag == 1:
+            registers["PC"] = addr # JUMP: Set PC to target line
+            clock_cycle += 10
+            output_box.insert(tk.END, f"Jumped to line {registers['PC']} (Z=1)\n")
+        else:
+            registers["PC"] += 1 # NO JUMP: Go to next line
+            clock_cycle += 7
+            output_box.insert(tk.END, f"No jump (Z=0). PC -> {registers['PC']}\n")
 
-    elif op == "OUT":
-        reg = args[0]
-        output_box.insert(tk.END, f"{registers[reg]}\n")
-        output_box.see(tk.END)
+    elif op == "JNZ":
+        addr = int(args[0])
+        Z_flag = int(registers["FLAGS"].split()[0].split('=')[1])
+        
+        if Z_flag == 0:
+            registers["PC"] = addr # JUMP
+            clock_cycle += 10
+            output_box.insert(tk.END, f"Jumped to line {registers['PC']} (Z=0)\n")
+        else:
+            registers["PC"] += 1 # NO JUMP
+            clock_cycle += 7
+            output_box.insert(tk.END, f"No jump (Z=1). PC -> {registers['PC']}\n")
+    
+    elif op == "JC":
+        addr = int(args[0])
+        CY_flag = int(registers["FLAGS"].split()[1].split('=')[1])
+        
+        if CY_flag == 1:
+            registers["PC"] = addr # JUMP
+            clock_cycle += 10
+            output_box.insert(tk.END, f"Jumped to line {registers['PC']} (CY=1)\n")
+        else:
+            registers["PC"] += 1 # NO JUMP
+            clock_cycle += 7
+            output_box.insert(tk.END, f"No jump (CY=0). PC -> {registers['PC']}\n")
+    
+    elif op == "JNC":
+        addr = int(args[0])
+        CY_flag = int(registers["FLAGS"].split()[1].split('=')[1])
+        
+        if CY_flag == 0:
+            registers["PC"] = addr # JUMP
+            clock_cycle += 10
+            output_box.insert(tk.END, f"Jumped to line {registers['PC']} (CY=0)\n")
+        else:
+            registers["PC"] += 1 # NO JUMP
+            clock_cycle += 7
+            output_box.insert(tk.END, f"No jump (CY=1). PC -> {registers['PC']}\n")
+
+    elif op == "INP" or op == "OUT":
+        if op == "INP":
+            reg = args[0]
+            val = simple_input_popup(f"Enter value for {reg}:")
+            registers[reg] = val & 0xFF
+        else: # OUT
+            reg = args[0]
+            output_box.insert(tk.END, f"{registers[reg]}\n")
+            output_box.see(tk.END)
+            
         clock_cycle += 10
+        registers["PC"] += 1
     
     elif op == "HLT":
+        registers["PC"] += 1
+        clock_cycle += 5    
         halted = True
         stage_label.config(text="Stage: HALTED")
-
-    if not halted:
-        registers["PC"] += 1
-        
+        output_box.insert(tk.END, "Program halted.\n")
+        output_box.see(tk.END)
+    
     update_gui()
 
 def run_program():
     global halted
     halted = False
     while not halted:
-        # fetch() and execute() will handle the HLT condition.
         highlight_instruction(registers["PC"] + 1)
         instr = fetch()
         op, args = decode(instr)
+        if op == "HLT":
+            halted = True
         execute(op, args)
 
 def step_program():
@@ -480,7 +447,7 @@ def step_program():
         output_box.insert("end", "Program halted.\n")
         output_box.see("end")
         return
-     
+      
     highlight_instruction(registers["PC"] + 1)
     instr = fetch()
     op, args = decode(instr)
@@ -488,16 +455,15 @@ def step_program():
 
 def reset():
     """Resets to initial state."""
-    global halted, memory, registers
+    global halted, memory, registers, clock_cycle
     halted = True
     clock_cycle = 0
     
-    # Reset all registers to default
     for key in registers:
         if key == "SP":
             registers[key] = 1024
         elif key == "FLAGS":
-            registers[key] = "Z=0 S=0 P=0 C=0 AC=0"
+            registers[key] = "Z=0 CY=0" # S85-specific flags
         elif key == "IR":
             registers[key] = ""
         else:
@@ -505,10 +471,15 @@ def reset():
     
     # Clear memory
     memory = [0] * 1024
+    # Re-load program from text box into memory
+    lines = asm_text.get("1.0", tk.END).strip().splitlines()
+    addr = 0
+    for line in lines:
+        if line.strip():
+            memory[addr] = line.strip().upper()
+            addr += 1
     
     asm_text.tag_remove("highlight", "1.0", "end")
-
-    # Clear output and stage
     output_box.delete("1.0", tk.END)
     stage_label.config(text="Stage: RESET")
     
@@ -516,12 +487,13 @@ def reset():
     for r in registers:
         reg_labels[r].config(text=str(registers[r]))
     for i in range(len(memory)):
-        # We need to re-read the original color, not just set text
         color = "white"
         if 0 <= i <= 255: color = "#fff8e8"
         elif 256 <= i <= 767: color = "#e8ffe8"
         elif 768 <= i <= 1023: color = "#e8f8ff"
         mem_labels[i].config(text=f"[{i:02}] = {memory[i]}", bg=color)
+    
+    clock_label.config(text=str(clock_cycle))
     root.update()
 
 # --- Buttons --- #
@@ -541,5 +513,9 @@ tk.Button(btn_frame, text="Reset", command=reset,
 tk.Label(col2_frame, text="Output:", font=("Arial", 13, "bold"), bg="#f0f4f7").pack(pady=(10, 5))
 output_box = tk.Text(col2_frame, height=5, width=40, font=("Consolas", 11), bg="#e8ffe8", relief="solid")
 output_box.pack(pady=5)
+
+# --- Initial State ---
+reset() 
+assemble_program() 
 
 root.mainloop()
